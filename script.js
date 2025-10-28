@@ -4,11 +4,10 @@
 const CONFIG = {
   startAmmo: 10,
   totalScoreGoal: 500,
-  coinDropMin: 25,
-  coinDropMax: 150,
-  coinStep: 25,
-  // rebalanced rarity: very common small drops, very rare big drops
-  coinRarityWeights: [60,20,8,6,4,2],
+  totalScoreGoal: 500,
+  // specific coin drop values and their relative rarity (5 is most common, 50 is rare)
+  coinValues: [5, 10, 15, 20, 25, 50],
+  coinRarityWeights: [60, 20, 10, 6, 3, 1],
   // slightly more water chance than poison; coins are rare
   dropTypeWeights: {
     water: 48,
@@ -76,7 +75,10 @@ loadAudio()
 function randInt(min,max){return Math.floor(Math.random()*(max-min+1))+min}
 function chooseWeighted(values,weights){const total=weights.reduce((a,b)=>a+b,0);let r=Math.random()*total;for(let i=0;i<values.length;i++){r-=weights[i];if(r<=0) return values[i]}return values[values.length-1]}
 
-function pickCoinAmount(){const steps = (CONFIG.coinDropMax-CONFIG.coinDropMin)/CONFIG.coinStep + 1; const vals=[]; for(let i=0;i<steps;i++) vals.push(CONFIG.coinDropMin + i*CONFIG.coinStep); return chooseWeighted(vals, CONFIG.coinRarityWeights)}
+function pickCoinAmount(){
+  // Choose from the explicit coin values with configured rarity weights
+  return chooseWeighted(CONFIG.coinValues, CONFIG.coinRarityWeights)
+}
 
 function pickDropType(){return chooseWeighted(['water','poison','coin'], [CONFIG.dropTypeWeights.water, CONFIG.dropTypeWeights.poison, CONFIG.dropTypeWeights.coin])}
 
@@ -107,7 +109,7 @@ function clearBalloons(){state.balloons.forEach(b=>b.remove()); state.balloons=[
 
 function onPop(e){if(!state.running) return; const el = e.currentTarget; if(el.dataset.popped==='true') return; // use ammo
   if(state.ammoCounts[state.weapon] <= 0){ // try auto-buy? no - just prevent
-    flashMessage('No ammo! Buy more in the shop or you lose.'); return
+    flashMessage('No ammo! Open the Store to buy or refill weapons.'); return
   }
   state.ammoCounts[state.weapon] -= 1; updateUI()
   el.dataset.popped='true'
@@ -197,7 +199,7 @@ function buyWeapon(type){const w = CONFIG.weapons[type]; if(!w) return; if(state
 }
 
 function refillWeapon(type){const w = CONFIG.weapons[type]; if(!w) return; if(state.coins < w.refillCost){flashMessage('Not enough coins to refill.'); // losing condition per spec
-    loseGame('Out of coins')
+    // do NOT end the game here — allow player to continue if they have ammo or can earn coins
     return}
   state.coins -= w.refillCost; state.ammoCounts[type] += w.ammoOnRefill; // except darts which always give 5 (already set)
   // if buying a weapon for the first time, mark owned so player can switch
@@ -260,12 +262,16 @@ document.querySelectorAll('.shop-item').forEach(si=>si.addEventListener('click',
 function checkWinLose(){updateUI(); // lose if poison >= 100 or if coins can't buy any refill and ammo=0? per spec: If the player does not have enough coins to continue, they lose just as if the poison bar overflows.
   if(state.poison >= 100){loseGame('Poison overwhelmed you!') ; return}
   if(state.water >= 100){winGame() ; return}
-  // check cannot continue: no ammo in any owned weapons and coins too low to refill darts (5)
+  // end-game only happens when player has no coins AND no ammo
   const totalAmmo = Object.values(state.ammoCounts).reduce((a,b)=>a+b,0)
-  if(totalAmmo <=0){ // no ammo left anywhere
-    const canAffordAny = Object.values(CONFIG.weapons).some(w=> state.coins >= (w.refillCost || 99999))
-    // If can't afford any refill, lose
-    if(!canAffordAny){loseGame('Out of ammo and coins!')}
+  if(totalAmmo <= 0 && state.coins <= 0){
+    // truly out of both resources -> game over
+    loseGame('Out of ammo and coins!')
+    return
+  }
+  if(totalAmmo <= 0 && state.coins > 0){
+    // player still has coins — let them buy/refill. Prompt but don't end the game.
+    flashMessage('Out of ammo — open the Store to buy or refill weapons.')
   }
 }
 
